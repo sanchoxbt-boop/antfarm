@@ -167,10 +167,10 @@ function parseAndInsertStories(output: string, runId: string): void {
     "INSERT INTO stories (id, run_id, story_index, story_id, title, description, acceptance_criteria, status, retry_count, max_retries, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', 0, 2, ?, ?)"
   );
 
+  // Validate all stories first before inserting any
   const seenIds = new Set<string>();
   for (let i = 0; i < stories.length; i++) {
     const s = stories[i];
-    // Accept both camelCase and snake_case
     const ac = s.acceptanceCriteria ?? s.acceptance_criteria;
     if (!s.id || !s.title || !s.description || !Array.isArray(ac) || ac.length === 0) {
       throw new Error(`STORIES_JSON story at index ${i} missing required fields (id, title, description, acceptanceCriteria)`);
@@ -179,7 +179,21 @@ function parseAndInsertStories(output: string, runId: string): void {
       throw new Error(`STORIES_JSON has duplicate story id "${s.id}"`);
     }
     seenIds.add(s.id);
-    insert.run(crypto.randomUUID(), runId, i, s.id, s.title, s.description, JSON.stringify(ac), now, now);
+  }
+
+  // Use transaction for atomic insert with rollback on error
+  try {
+    db.exec("BEGIN TRANSACTION");
+    for (let i = 0; i < stories.length; i++) {
+      const s = stories[i];
+      const ac = s.acceptanceCriteria ?? s.acceptance_criteria;
+      insert.run(crypto.randomUUID(), runId, i, s.id, s.title, s.description, JSON.stringify(ac), now, now);
+    }
+    db.exec("COMMIT");
+  } catch (e) {
+    // Rollback on any error to prevent partial inserts leaving steps stuck
+    try { db.exec("ROLLBACK"); } catch { /* already rolled back */ }
+    throw new Error(`Failed to insert stories: ${(e as Error).message}`);
   }
 }
 
@@ -194,15 +208,37 @@ interface ClaimResult {
 
 /**
  * Find and claim a pending step for an agent, returning the resolved input.
+ * Uses a transaction to prevent race conditions when multiple agents poll simultaneously.
  */
 export function claimStep(agentId: string): ClaimResult {
   const db = getDb();
 
-  const step = db.prepare(
-    "SELECT id, run_id, input_template, type, loop_config FROM steps WHERE agent_id = ? AND status = 'pending' LIMIT 1"
-  ).get(agentId) as { id: string; run_id: string; input_template: string; type: string; loop_config: string | null } | undefined;
+  // Wrap in transaction to ensure atomic claim
+  try {
+    db.exec("BEGIN IMMEDIATE");
+    
+    const step = db.prepare(
+      "SELECT id, run_id, input_template, type, loop_config FROM steps WHERE agent_id = ? AND status = 'pending' LIMIT 1"
+    ).get(agentId) as { id: string; run_id: string; input_template: string; type: string; loop_config: string | null } | undefined;
 
-  if (!step) return { found: false };
+    if (!step) {
+      db.exec("ROLLBACK");
+      return { found: false };
+    }
+
+    const result = claimStepInternal(db, step, agentId);
+    db.exec("COMMIT");
+    return result;
+  } catch (e) {
+    try { db.exec("ROLLBACK"); } catch { /* already rolled back */ }
+    throw e;
+  }
+}
+
+/**
+ * Internal claim logic extracted for transaction wrapping.
+ */
+function claimStepInternal(db: ReturnType<typeof getDb>, step: { id: string; run_id: string; input_template: string; type: string; loop_config: string | null }, agentId: string): ClaimResult {
 
   // Get run context
   const run = db.prepare("SELECT context FROM runs WHERE id = ?").get(step.run_id) as { context: string } | undefined;
@@ -295,8 +331,9 @@ export function claimStep(agentId: string): ClaimResult {
 
 /**
  * Complete a step: save output, merge context, advance pipeline.
+ * If output contains STATUS: retry, treat as a failure and trigger retry logic.
  */
-export function completeStep(stepId: string, output: string): { advanced: boolean; runCompleted: boolean } {
+export function completeStep(stepId: string, output: string): { advanced: boolean; runCompleted: boolean; retrying?: boolean } {
   const db = getDb();
 
   const step = db.prepare(
@@ -319,6 +356,35 @@ export function completeStep(stepId: string, output: string): { advanced: boolea
   db.prepare(
     "UPDATE runs SET context = ?, updated_at = datetime('now') WHERE id = ?"
   ).run(JSON.stringify(context), step.run_id);
+
+  // Check for STATUS: retry - if found, treat as a failure and trigger retry
+  if (context["status"]?.toLowerCase() === "retry") {
+    // Find the previous step to retry (the one before this auditor/verify step)
+    const prevStep = db.prepare(
+      "SELECT id, step_id FROM steps WHERE run_id = ? AND step_index < ? ORDER BY step_index DESC LIMIT 1"
+    ).get(step.run_id, step.step_index) as { id: string; step_id: string } | undefined;
+
+    if (prevStep) {
+      // Reset the previous step to pending for retry
+      db.prepare(
+        "UPDATE steps SET status = 'pending', updated_at = datetime('now') WHERE id = ?"
+      ).run(prevStep.id);
+
+      // Mark current step as waiting (so it runs again after the retry)
+      db.prepare(
+        "UPDATE steps SET status = 'waiting', output = ?, updated_at = datetime('now') WHERE id = ?"
+      ).run(output, step.id);
+
+      // Store the issues in context for the retrying step to see
+      const issues = context["issues"] ?? output;
+      context["retry_feedback"] = issues;
+      db.prepare(
+        "UPDATE runs SET context = ?, updated_at = datetime('now') WHERE id = ?"
+      ).run(JSON.stringify(context), step.run_id);
+
+      return { advanced: false, runCompleted: false, retrying: true };
+    }
+  }
 
   // T5: Parse STORIES_JSON from output (any step, typically the planner)
   parseAndInsertStories(output, step.run_id);
@@ -486,7 +552,7 @@ function advancePipeline(runId: string): { advanced: boolean; runCompleted: bool
     return { advanced: true, runCompleted: false };
   } else {
     db.prepare(
-      "UPDATE runs SET status = 'completed', updated_at = datetime('now') WHERE id = ?"
+      "UPDATE runs SET status = 'done', updated_at = datetime('now') WHERE id = ?"
     ).run(runId);
     archiveRunProgress(runId);
     scheduleRunCronTeardown(runId);

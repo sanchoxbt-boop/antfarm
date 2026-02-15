@@ -16,13 +16,9 @@ export function ensureCliSymlink(): void {
   const linkPath = join(localBin, BINARY_NAME);
 
   // Resolve the actual CLI entry point (dist/cli/cli.js)
-  const cliEntry = join(
-    fileURLToPath(import.meta.url),
-    "..",
-    "..",
-    "cli",
-    "cli.js",
-  );
+  // fileURLToPath returns the file path, not directory, so we need dirname first
+  const __dirname = join(fileURLToPath(import.meta.url), "..");
+  const cliEntry = join(__dirname, "..", "cli", "cli.js");
 
   try {
     mkdirSync(localBin, { recursive: true });

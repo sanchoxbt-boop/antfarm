@@ -140,19 +140,20 @@ function renderBoard(wf, runs) {
           const isDone = run.status === 'done';
           const isFailed = run.status === 'failed' || run.status === 'error';
           const cls = isDone ? 'done' : isFailed ? 'failed' : '';
-          const badge = `badge-${run.status}`;
+          const badge = `badge-${esc(run.status)}`;
           const time = run.updated_at ? new Date(run.updated_at).toLocaleString() : '';
-          const title = run.task.length > 60 ? run.task.slice(0, 57) + '…' : run.task;
-          return `<div class="card ${cls}" onclick="openRun('${run.id}')">
-            <div class="card-title" title="${run.task.replace(/"/g, '&quot;')}">${title}</div>
+          const rawTitle = run.task.length > 60 ? run.task.slice(0, 57) + '…' : run.task;
+          const safeId = esc(run.id);
+          return `<div class="card ${cls}" onclick="openRun('${safeId}')">
+            <div class="card-title" title="${esc(run.task)}">${esc(rawTitle)}</div>
             <div class="card-meta">
-              <span class="badge ${badge}">${run.status}</span>
-              <span>${time}</span>
+              <span class="badge ${badge}">${esc(run.status)}</span>
+              <span>${esc(time)}</span>
             </div>
           </div>`;
         }).join('');
     return `<div class="column">
-      <div class="column-header">${step.id}<span class="count">${cards.length}</span></div>
+      <div class="column-header">${esc(step.id)}<span class="count">${cards.length}</span></div>
       <div class="cards">${cardHTML}</div>
     </div>`;
   }).join('');
@@ -167,23 +168,23 @@ async function openRun(id) {
   const created = run.created_at ? new Date(run.created_at).toLocaleString() : '';
   const updated = run.updated_at ? new Date(run.updated_at).toLocaleString() : '';
   const stepsHTML = (run.steps || []).map(s => {
-    const st = s.status || 'waiting';
-    const icon = stepIcons[st] || '○';
+    const st = esc(s.status || 'waiting');
+    const icon = stepIcons[s.status] || '○';
     return `<div class="step-row">
       <div class="step-icon ${st}">${icon}</div>
-      <div class="step-name">${s.step_id}</div>
-      <div class="step-agent">${s.agent_id || ''}</div>
+      <div class="step-name">${esc(s.step_id)}</div>
+      <div class="step-agent">${esc(s.agent_id || '')}</div>
       <div class="step-status"><span class="badge badge-${st}">${st}</span></div>
     </div>`;
   }).join('');
   panel.innerHTML = `
     <button class="panel-close" onclick="closePanel()">✕</button>
-    <h2>${run.workflow_id}</h2>
+    <h2>${esc(run.workflow_id)}</h2>
     <div class="panel-task">${esc(run.task)}</div>
     <div class="panel-meta">
-      <span><span class="badge badge-${run.status}">${run.status}</span></span>
-      <span>Created: ${created}</span>
-      <span>Updated: ${updated}</span>
+      <span><span class="badge badge-${esc(run.status)}">${esc(run.status)}</span></span>
+      <span>Created: ${esc(created)}</span>
+      <span>Updated: ${esc(updated)}</span>
     </div>
     <div class="steps-list">${stepsHTML}</div>
     <div id="stories-panel"></div>

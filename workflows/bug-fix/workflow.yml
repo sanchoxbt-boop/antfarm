@@ -161,7 +161,7 @@ steps:
   - id: fix
     agent: fixer
     input: |
-      Implement the bug fix.
+      Implement the bug fix using Codex CLI.
 
       BUG REPORT:
       {{task}}
@@ -180,11 +180,19 @@ steps:
 
       Instructions:
       1. cd into the repo, checkout the branch
-      2. Implement the fix based on the root cause and fix approach
-      3. Write a regression test that would have caught this bug
-      4. Run {{build_cmd}} to verify the build passes
-      5. Run {{test_cmd}} to verify all tests pass
-      6. Commit: fix: brief description of the fix
+      2. USE CODEX CLI for implementation:
+         ```
+         cd {{repo}}
+         git checkout {{branch}}
+         codex --full-auto exec "Fix bug: {{problem_statement}}. Root cause: {{root_cause}}. Approach: {{fix_approach}}. Also write a regression test."
+         ```
+      3. After Codex completes, verify:
+         - Run {{build_cmd}} to verify the build passes
+         - Run {{test_cmd}} to verify all tests pass
+      4. Commit: fix: brief description of the fix
+
+      IMPORTANT: Use Codex CLI (codex --full-auto exec "...") for all coding work.
+      Model: gpt-5.2-codex (highest available)
 
       Reply with:
       STATUS: done

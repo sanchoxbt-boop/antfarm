@@ -68,8 +68,30 @@ function serveHTML(res: http.ServerResponse) {
   res.end(fs.readFileSync(filePath, "utf-8"));
 }
 
+// Auth token for dashboard access - read from env or generate
+const DASHBOARD_AUTH_TOKEN = process.env.ANTFARM_DASHBOARD_TOKEN || null;
+
+function checkAuth(req: http.IncomingMessage, res: http.ServerResponse): boolean {
+  if (!DASHBOARD_AUTH_TOKEN) return true; // No token required if not set
+  const url = new URL(req.url ?? "/", "http://localhost");
+  const tokenParam = url.searchParams.get("token");
+  const authHeader = req.headers.authorization;
+  const bearerToken = authHeader?.startsWith("Bearer ") ? authHeader.slice(7) : null;
+  
+  if (tokenParam === DASHBOARD_AUTH_TOKEN || bearerToken === DASHBOARD_AUTH_TOKEN) {
+    return true;
+  }
+  
+  res.writeHead(401, { "Content-Type": "application/json" });
+  res.end(JSON.stringify({ error: "Unauthorized. Provide token via ?token= or Authorization: Bearer" }));
+  return false;
+}
+
 export function startDashboard(port = 3333): http.Server {
   const server = http.createServer((req, res) => {
+    // Check auth for all requests
+    if (!checkAuth(req, res)) return;
+    
     const url = new URL(req.url ?? "/", `http://localhost:${port}`);
     const p = url.pathname;
 
@@ -124,8 +146,11 @@ export function startDashboard(port = 3333): http.Server {
     serveHTML(res);
   });
 
-  server.listen(port, () => {
-    console.log(`Antfarm Dashboard: http://localhost:${port}`);
+  server.listen(port, "127.0.0.1", () => {
+    console.log(`Antfarm Dashboard: http://127.0.0.1:${port}`);
+    if (DASHBOARD_AUTH_TOKEN) {
+      console.log(`Auth token required: ${DASHBOARD_AUTH_TOKEN.slice(0, 4)}...`);
+    }
   });
 
   return server;

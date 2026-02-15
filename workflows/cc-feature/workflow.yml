@@ -1,0 +1,268 @@
+# Command Center Feature Workflow
+# Uses our specialized agents who know the project
+id: cc-feature
+name: Command Center Feature
+version: 1
+description: |
+  iOS feature development for Command Center GTD app.
+  Uses our specialized agents who know the codebase, design system, and standards.
+  Flow: Plan → UX Review → Design → Build → Audit
+
+agents:
+  - id: planner
+    name: Planner
+    role: analysis
+    description: Decomposes features into stories. Knows Command Center architecture.
+    workspace:
+      baseDir: agents/planner
+      files:
+        SOUL.md: ../../../agents/planner/SOUL.md
+        CONTEXT.md: ../../../agents/planner/CONTEXT.md
+        SKILLS.md: ../../../agents/planner/SKILLS.md
+
+  - id: uiux
+    name: UI/UX
+    role: analysis
+    description: Validates user flows and usability before visual design.
+    workspace:
+      baseDir: agents/uiux
+      files:
+        SOUL.md: ../../../agents/uiux/SOUL.md
+
+  - id: designer
+    name: Designer
+    role: analysis
+    description: Creates UI mockups and design specs. Knows iOS HIG, terracotta, SF Pro.
+    workspace:
+      baseDir: agents/designer
+      files:
+        SOUL.md: ../../../agents/designer/SOUL.md
+        SKILLS.md: ../../../agents/designer/SKILLS.md
+
+  - id: builder
+    name: Builder
+    role: coding
+    description: Implements in SwiftUI. Knows project structure and patterns.
+    workspace:
+      baseDir: agents/builder
+      files:
+        SOUL.md: ../../../agents/builder/SOUL.md
+        SKILLS.md: ../../../agents/builder/SKILLS.md
+        STANDARDS.md: ../../../agents/builder/STANDARDS.md
+
+  - id: auditor
+    name: Auditor
+    role: verification
+    description: Reviews code quality and UI standards. Knows UI-AUDIT.md criteria.
+    workspace:
+      baseDir: agents/auditor
+      files:
+        SOUL.md: ../../../agents/auditor/SOUL.md
+        STANDARDS.md: ../../../agents/auditor/STANDARDS.md
+
+steps:
+  - id: plan
+    agent: planner
+    input: |
+      Decompose this feature into stories for Command Center iOS app.
+
+      FEATURE:
+      {{task}}
+
+      PROJECT: Command Center iOS (GTD app)
+      LOCATION: projects/command-center/ios/CommandCenter/
+      
+      Read CONTEXT.md for project knowledge.
+      Check existing code to understand current patterns.
+
+      Break into small stories (30-60 min each).
+      Include acceptance criteria that can be verified.
+      Order by dependency.
+
+      Reply with:
+      STATUS: done
+      STORIES_JSON: [ ... ]
+      DESIGN_NEEDED: yes/no (does this need Designer input?)
+      NOTES: Any context for the Chief of Staff
+    expects: "STATUS: done"
+    max_retries: 2
+    on_fail:
+      escalate_to: human
+
+  - id: ux-review
+    agent: uiux
+    input: |
+      Review the UX of this planned feature for Command Center iOS.
+
+      FEATURE:
+      {{task}}
+
+      STORIES:
+      {{stories_json}}
+
+      DESIGN NEEDED: {{design_needed}}
+
+      PROJECT: Command Center iOS (GTD app)
+      LOCATION: projects/command-center/ios/CommandCenter/
+
+      Your job:
+      1. Map the user flow this feature creates/modifies
+      2. Check against GTD principles (capture, clarify, organize, reflect, engage)
+      3. Identify usability issues before we design/build
+      4. Ensure the flow is intuitive and efficient
+
+      Consider:
+      - Can users complete the task in < 3 steps?
+      - Is the feature discoverable?
+      - What happens on error/edge cases?
+      - Does this create cognitive overload?
+      - Is this consistent with existing patterns?
+
+      Reply with:
+      STATUS: done
+      FLOW_VALIDATED: yes/no
+      RECOMMENDATIONS:
+        - HIGH: Critical issues that must be addressed
+        - MEDIUM: Should address, could ship without
+        - LOW: Nice to have
+      NOTES: Context for Designer
+    expects: "STATUS: done"
+    max_retries: 2
+    on_fail:
+      escalate_to: human
+
+  - id: design
+    agent: designer
+    condition: "{{design_needed}} == yes"
+    input: |
+      Create design specs for this Command Center feature.
+
+      FEATURE:
+      {{task}}
+
+      STORIES:
+      {{stories_json}}
+
+      UX RECOMMENDATIONS:
+      {{recommendations}}
+
+      DESIGN SYSTEM:
+      - Accent: Terracotta (#D4856A)
+      - Font: SF Pro (system)
+      - Dark mode first
+      - Touch targets: 44pt minimum
+      - Follow iOS Human Interface Guidelines
+
+      PROJECT: projects/command-center/ios/CommandCenter/
+      Check Design/DesignSystem.swift for existing tokens.
+
+      Create:
+      1. HTML mockup if UI-heavy (save to projects/command-center/mockups/)
+      2. Component specs (what to build, how it should look)
+      3. Interaction notes (animations, gestures)
+
+      Reply with:
+      STATUS: done
+      MOCKUP: path to mockup (if created)
+      SPECS: design specifications
+      COMPONENTS: list of components to build/modify
+    expects: "STATUS: done"
+    max_retries: 2
+    on_fail:
+      escalate_to: human
+
+  - id: build
+    agent: builder
+    type: loop
+    loop:
+      over: stories
+      completion: all_done
+      fresh_session: true
+      verify_each: true
+      verify_step: audit
+    input: |
+      Implement this story in Command Center iOS using Codex CLI.
+
+      FEATURE:
+      {{task}}
+
+      CURRENT STORY:
+      {{current_story}}
+
+      DESIGN SPECS:
+      {{specs}}
+
+      PROJECT: projects/command-center/ios/CommandCenter/
+      
+      COMPLETED STORIES:
+      {{completed_stories}}
+
+      AUDIT FEEDBACK (if retrying):
+      {{audit_feedback}}
+
+      Instructions:
+      1. Read existing code to match patterns
+      2. USE CODEX CLI for implementation:
+         ```
+         cd ~/projects/command-center/ios/CommandCenter
+         codex --full-auto exec "Implement: {{current_story}}. Match existing patterns. Use DesignSystem.swift tokens."
+         ```
+      3. After Codex completes, verify the build:
+         xcodebuild -scheme CommandCenter -destination 'platform=iOS Simulator,name=iPhone 17 Pro' build
+      4. Test on simulator if UI changes
+
+      IMPORTANT: Use Codex CLI (codex --full-auto exec "...") for all coding work.
+      Model: gpt-5.2-codex (highest available)
+
+      Reply with:
+      STATUS: done
+      FILES_CHANGED: list of files modified
+      BUILD: succeeded/failed
+    expects: "STATUS: done"
+    max_retries: 2
+    on_fail:
+      escalate_to: human
+
+  - id: audit
+    agent: auditor
+    input: |
+      Audit the builder's work on this story.
+
+      FEATURE:
+      {{task}}
+
+      CURRENT STORY:
+      {{current_story}}
+
+      FILES CHANGED:
+      {{files_changed}}
+
+      PROJECT: projects/command-center/ios/CommandCenter/
+      
+      Check against UI-AUDIT.md standards:
+      - 44pt touch targets
+      - Proper accessibility labels
+      - Consistent spacing (use tokens)
+      - No hardcoded colors (use Color extensions)
+      - Empty states handled
+      - Error states handled
+
+      Verify:
+      1. Code matches acceptance criteria
+      2. Build succeeds
+      3. No obvious issues
+
+      Reply with:
+      STATUS: done
+      VERIFIED: what passed
+
+      Or if issues:
+      STATUS: retry
+      ISSUES:
+      - What needs fixing
+    expects: "STATUS: done"
+    on_fail:
+      retry_step: build
+      max_retries: 2
+      on_exhausted:
+        escalate_to: human

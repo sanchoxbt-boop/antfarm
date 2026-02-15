@@ -10,8 +10,28 @@ export function resolveBundledWorkflowsDir(): string {
   return path.resolve(__dirname, "..", "..", "workflows");
 }
 
+// Validate workflowId to prevent path traversal
+function validateWorkflowId(workflowId: string): void {
+  if (!/^[a-z0-9_-]+$/i.test(workflowId)) {
+    throw new Error(`Invalid workflowId: ${workflowId}. Must match ^[a-z0-9_-]+$`);
+  }
+}
+
+// Assert resolved path stays within root directory
+function assertPathWithinRoot(resolvedPath: string, root: string): void {
+  const normalizedPath = path.resolve(resolvedPath);
+  const normalizedRoot = path.resolve(root);
+  if (!normalizedPath.startsWith(normalizedRoot + path.sep) && normalizedPath !== normalizedRoot) {
+    throw new Error(`Path traversal detected: ${resolvedPath} is outside ${root}`);
+  }
+}
+
 export function resolveBundledWorkflowDir(workflowId: string): string {
-  return path.join(resolveBundledWorkflowsDir(), workflowId);
+  validateWorkflowId(workflowId);
+  const root = resolveBundledWorkflowsDir();
+  const resolved = path.join(root, workflowId);
+  assertPathWithinRoot(resolved, root);
+  return resolved;
 }
 
 export function resolveOpenClawStateDir(): string {
@@ -39,7 +59,11 @@ export function resolveWorkflowRoot(): string {
 }
 
 export function resolveWorkflowDir(workflowId: string): string {
-  return path.join(resolveWorkflowRoot(), workflowId);
+  validateWorkflowId(workflowId);
+  const root = resolveWorkflowRoot();
+  const resolved = path.join(root, workflowId);
+  assertPathWithinRoot(resolved, root);
+  return resolved;
 }
 
 export function resolveWorkflowWorkspaceRoot(): string {
@@ -47,7 +71,11 @@ export function resolveWorkflowWorkspaceRoot(): string {
 }
 
 export function resolveWorkflowWorkspaceDir(workflowId: string): string {
-  return path.join(resolveWorkflowWorkspaceRoot(), workflowId);
+  validateWorkflowId(workflowId);
+  const root = resolveWorkflowWorkspaceRoot();
+  const resolved = path.join(root, workflowId);
+  assertPathWithinRoot(resolved, root);
+  return resolved;
 }
 
 export function resolveRunRoot(): string {

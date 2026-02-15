@@ -200,7 +200,7 @@ steps:
       verify_each: true
       verify_step: verify
     input: |
-      Implement a security fix. You are working on ONE fix in a fresh session.
+      Implement a security fix using Codex CLI. You are working on ONE fix in a fresh session.
 
       TASK (overall):
       {{task}}
@@ -227,12 +227,20 @@ steps:
       Instructions:
       1. cd into the repo, pull latest on the branch
       2. Read the vulnerability description carefully
-      3. Implement the fix — minimal, targeted changes only
-      4. Write a regression test that verifies the vulnerability is patched
-      5. Run {{build_cmd}} to verify the build passes
-      6. Run {{test_cmd}} to verify all tests pass
-      7. Commit: fix(security): brief description
-      8. Append to progress.txt
+      3. USE CODEX CLI for implementation:
+         ```
+         cd {{repo}}
+         git pull
+         codex --full-auto exec "Fix security vulnerability: {{current_story}}. Minimal targeted fix. Include regression test."
+         ```
+      4. After Codex completes, verify:
+         - Run {{build_cmd}} to verify the build passes
+         - Run {{test_cmd}} to verify all tests pass
+      5. Commit: fix(security): brief description
+      6. Append to progress.txt
+
+      IMPORTANT: Use Codex CLI (codex --full-auto exec "...") for all coding work.
+      Model: gpt-5.2-codex (highest available)
 
       Reply with:
       STATUS: done
